@@ -1,6 +1,8 @@
 checkpoints/
 results/
 .idea/
+models/networks/Synchronized-BatchNorm-PyTorch/
+models/networks/sync_batchnorm/
 *.tar.gz
 *.zip
 *.pkl
