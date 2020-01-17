@@ -37,19 +37,19 @@ class QueueIterator:
         return self
 
     def __next__(self):
-        image = Image.open(BytesIO(input_queue.get())).convert('L')
-        transform_label = transforms.Compose([
-            transforms.Resize([opt.crop_size, opt.crop_size], interpolation=Image.NEAREST),
-            transforms.Lambda(lambda img: img.crop((0, 0, opt.crop_size, opt.crop_size))),
-            transforms.ToTensor()
-        ])
-        label_tensor = transform_label(image) * 255.0
+        original_image = Image.open(BytesIO(input_queue.get()))
+        image = original_image.convert('L')
+        if image.size != (opt.crop_size, opt.crop_size):
+            image = image.resize((opt.crop_size, opt.crop_size), Image.NEAREST)
+            image = image.crop((0, 0, opt.crop_size, opt.crop_size))
+        label_tensor = transforms.ToTensor()(image) * 255.0
         label_tensor[label_tensor > opt.label_nc] = opt.label_nc
         return {
             'label': label_tensor,
             'instance': label_tensor,
             'image': label_tensor,
-            'size': image.size,
+            'size': original_image.size,
+            'format': original_image.format,
         }
 
 
@@ -143,10 +143,11 @@ class WorkerThread(Thread):
                 image_numpy = np.expand_dims(image_numpy, axis=2)
             if image_numpy.shape[2] == 1:
                 image_numpy = np.repeat(image_numpy, 3, 2)
-            image_pil = Image.fromarray(image_numpy)
-            image_pil = image_pil.resize(data_i['size'], Image.BICUBIC)
+            image = Image.fromarray(image_numpy)
+            if image.size != data_i['size']:
+                image = image.resize(data_i['size'], Image.BICUBIC)
             data = BytesIO()
-            image_pil.save(data, format='PNG')
+            image.save(data, format=data_i['format'][0])
             data = data.getvalue()
             print('Added to output queue: ' + str(len(data)))
             output_queue.put(data)
