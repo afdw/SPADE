@@ -26,6 +26,7 @@ class ServerOptions(TestOptions):
         parser.set_defaults(label_nc=182)
         parser.set_defaults(contain_dontcare_label=True)
         parser.set_defaults(name='coco_pretrained')
+        parser.add_argument('--port', type=int, default=8000, help='port')
         return parser
 
 
@@ -174,6 +175,6 @@ output_queue = Queue()
 worker_thread = WorkerThread()
 worker_thread.setDaemon(True)
 worker_thread.start()
-httpd = HTTPServer(('0.0.0.0', 8000), SimpleHTTPRequestHandler)
+httpd = HTTPServer(('0.0.0.0', opt.port), SimpleHTTPRequestHandler)
 print('Server is ready')
 httpd.serve_forever()
