@@ -37,19 +37,29 @@ class QueueIterator:
         return self
 
     def __next__(self):
-        original_image = Image.open(BytesIO(input_queue.get()))
-        image = original_image.convert('L')
-        if image.size != (opt.crop_size, opt.crop_size):
-            image = image.resize((opt.crop_size, opt.crop_size), Image.NEAREST)
-            image = image.crop((0, 0, opt.crop_size, opt.crop_size))
-        label_tensor = transforms.ToTensor()(image) * 255.0
+        (input_data, is_raw) = input_queue.get()
+        if is_raw:
+            input_numpy = np.reshape(np.frombuffer(input_data, dtype=np.uint8, count=opt.crop_size * opt.crop_size),
+                                     (opt.crop_size, opt.crop_size))
+            label_tensor = transforms.ToTensor()(input_numpy) * 255.0
+            original_size = (opt.crop_size, opt.crop_size)
+            original_format = 'raw'
+        else:
+            original_image = Image.open(BytesIO(input_data))
+            image = original_image.convert('L')
+            if image.size != (opt.crop_size, opt.crop_size):
+                image = image.resize((opt.crop_size, opt.crop_size), Image.NEAREST)
+                image = image.crop((0, 0, opt.crop_size, opt.crop_size))
+            label_tensor = transforms.ToTensor()(image) * 255.0
+            original_size = original_image.size
+            original_format = original_image.format
         label_tensor[label_tensor > opt.label_nc] = opt.label_nc
         return {
             'label': label_tensor,
             'instance': label_tensor,
             'image': label_tensor,
-            'size': original_image.size,
-            'format': original_image.format,
+            'size': original_size,
+            'format': original_format,
         }
 
 
@@ -101,7 +111,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                     pre_line = pre_line[0:-1]
                 data.write(pre_line)
                 data = data.getvalue()
-                input_queue.put(data)
+                input_queue.put((data, bool(self.headers['x-raw'])))
                 print('Added to input queue: ' + str(len(data)))
                 data = output_queue.get()
                 output_queue.task_done()
@@ -143,12 +153,17 @@ class WorkerThread(Thread):
                 image_numpy = np.expand_dims(image_numpy, axis=2)
             if image_numpy.shape[2] == 1:
                 image_numpy = np.repeat(image_numpy, 3, 2)
-            image = Image.fromarray(image_numpy)
-            if image.size != data_i['size']:
-                image = image.resize(data_i['size'], Image.BICUBIC)
-            data = BytesIO()
-            image.save(data, format=data_i['format'][0])
-            data = data.getvalue()
+            if data_i['format'][0] == 'raw':
+                image_numpy = np.append(np.zeros((image_numpy.shape[0], image_numpy.shape[1], 1), image_numpy.dtype),
+                                        image_numpy, 2)
+                data = image_numpy.tobytes()
+            else:
+                image = Image.fromarray(image_numpy)
+                if image.size != data_i['size']:
+                    image = image.resize(data_i['size'], Image.BICUBIC)
+                data = BytesIO()
+                image.save(data, format=data_i['format'][0])
+                data = data.getvalue()
             print('Added to output queue: ' + str(len(data)))
             output_queue.put(data)
             input_queue.task_done()
